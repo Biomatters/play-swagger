@@ -7,25 +7,15 @@ import play.routes.compiler.Parameter
 
 import scala.collection.JavaConverters
 import scala.reflect.runtime.universe._
+import scala.util.matching.Regex
 
 final case class DefinitionGenerator(
   modelQualifier:  DomainModelQualifier = PrefixDomainModelQualifier(),
   mappings:        CustomMappings       = Nil,
   swaggerPlayJava: Boolean              = false,
   _mapper:         ObjectMapper         = new ObjectMapper(),
-  namingStrategy:  NamingStrategy       = NamingStrategy.None)(implicit cl: ClassLoader) {
-
-  private val refinedTypePattern = raw"(eu\.timepit\.refined\.api\.Refined(?:\[.+\])?)".r
-
-  def dealiasParams(t: Type): Type = {
-    t.toString match {
-      case refinedTypePattern(_) => t.typeArgs.headOption.getOrElse(t)
-      case _ =>
-        appliedType(t.dealias.typeConstructor, t.typeArgs.map { arg ⇒
-          dealiasParams(arg.dealias)
-        })
-    }
-  }
+  namingStrategy:  NamingStrategy       = NamingStrategy.None,
+  refinedTypePattern: Regex             = ParametricType.DefaultRefinedTypePattern)(implicit cl: ClassLoader) {
 
   def definition: ParametricType ⇒ Definition = {
     case parametricType @ ParametricType(tpe, reifiedTypeName, _, _) ⇒
@@ -40,11 +30,7 @@ final case class DefinitionGenerator(
           //TODO: find a better way to get the string representation of typeSignature
           val name = namingStrategy(field.name.decodedName.toString)
 
-          val rawTypeName = dealiasParams(field.typeSignature).toString match {
-            case refinedTypePattern(_) => field.info.dealias.typeArgs.head.toString
-            case v => v
-          }
-          val typeName = parametricType.resolve(rawTypeName)
+          val typeName = parametricType.resolve(ParametricType.reifyType(field.typeSignature, refinedTypePattern).toString)
           // passing None for 'fixed' and 'default' here, since we're not dealing with route parameters
           val param = Parameter(name, typeName, None, None)
           mapParam(param, modelQualifier, mappings)
@@ -94,9 +80,9 @@ final case class DefinitionGenerator(
 
     def allReferredDefs(defName: String, memo: List[Definition]): List[Definition] = {
       def findRefTypes(p: GenSwaggerParameter): Seq[String] =
-        p.referenceType.toSeq ++ {
-          p.items.toSeq.collect(genSwaggerParameter).flatMap(findRefTypes)
-        }
+        p.referenceType.toSeq ++
+          p.items.toSeq.collect(genSwaggerParameter).flatMap(findRefTypes) ++
+          p.additionalProperties.flatMap(_.referenceType)
 
       memo.find(_.name == defName) match {
         case Some(_) ⇒ memo

@@ -22,16 +22,17 @@ object Domain {
   }
 
   final case class GenSwaggerParameter(
-    name:          String,
-    referenceType: Option[String]           = None,
-    `type`:        Option[String]           = None,
-    format:        Option[String]           = None,
-    required:      Boolean                  = true,
-    nullable:      Option[Boolean]          = None,
-    default:       Option[JsValue]          = None,
-    example:       Option[JsValue]          = None,
-    items:         Option[SwaggerParameter] = None,
-    enum:          Option[Seq[String]]      = None) extends SwaggerParameter {
+    name:                 String,
+    referenceType:        Option[String]           = None,
+    `type`:               Option[String]           = None,
+    format:               Option[String]           = None,
+    required:             Boolean                  = true,
+    nullable:             Option[Boolean]          = None,
+    default:              Option[JsValue]          = None,
+    example:              Option[JsValue]          = None,
+    items:                Option[SwaggerParameter] = None,
+    enum:                 Option[Seq[String]]      = None,
+    additionalProperties: Option[AdditionalProperties] = None) extends SwaggerParameter {
     def update(_required: Boolean, _nullable: Boolean, _default: Option[JsValue]) =
       copy(required = _required, nullable = Some(_nullable), default = _default)
   }
@@ -46,6 +47,10 @@ object Domain {
     def update(_required: Boolean, _nullable: Boolean, _default: Option[JsValue]) =
       copy(required = _required, nullable = Some(_nullable), default = _default)
   }
+
+  final case class AdditionalProperties(
+    referenceType: Option[String] = None,
+    `type`:        Option[String] = None)
 
   type CustomMappings = List[CustomTypeMapping]
 

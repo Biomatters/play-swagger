@@ -79,16 +79,15 @@ class ParametricTypeNamesTransformer extends OutputTransformer {
     }
   }
 
-  private final val normalize: String ⇒ String = {
-    case ParametricType.ParametricTypeClassName(className, argsGroup) ⇒
-      val normalizedArgs =
-        argsGroup
-          .split(",")
-          .iterator
-          .map(_.trim)
-          .map(normalize)
-          .mkString("_")
+  private final val normalize: String => String = {
+    case ParametricType.ParametricTypeClassName(className, argsGroup) =>
+      val argList = ParametricType.argStrToList(argsGroup)
+      val normalizedArgs = argList
+        .iterator
+        .map(_.trim)
+        .map(normalize)
+        .mkString("_")
       s"$className-$normalizedArgs"
-    case n ⇒ n
+    case n => n
   }
 }

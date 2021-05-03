@@ -1,7 +1,6 @@
 package com.iheart.playSwagger
 
 import java.io.File
-
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.iheart.playSwagger.Domain._
 import com.iheart.playSwagger.OutputTransformer.SimpleOutputTransformer
@@ -13,7 +12,8 @@ import play.routes.compiler._
 
 import scala.collection.mutable
 import scala.collection.immutable.ListMap
-import scala.util.{ Failure, Success, Try }
+import scala.util.matching.Regex
+import scala.util.{Failure, Success, Try}
 
 object SwaggerSpecGenerator {
   private val marker = "##"
@@ -46,7 +46,8 @@ final case class SwaggerSpecGenerator(
   outputTransformers:    Seq[OutputTransformer] = Nil,
   swaggerV3:             Boolean                = false,
   swaggerPlayJava:       Boolean                = false,
-  apiVersion:            Option[String]         = None)(implicit cl: ClassLoader) {
+  apiVersion:            Option[String]         = None,
+  refinedTypePattern:    Regex                  = ParametricType.DefaultRefinedTypePattern)(implicit cl: ClassLoader) {
 
   import SwaggerSpecGenerator.{ MissingBaseSpecException, baseSpecFileName, customMappingsFileName }
 
@@ -167,7 +168,8 @@ final case class SwaggerSpecGenerator(
       DefinitionGenerator(
         modelQualifier = modelQualifier,
         mappings = customMappings,
-        namingStrategy = namingStrategy).allDefinitions(referredClasses)
+        namingStrategy = namingStrategy,
+        refinedTypePattern = refinedTypePattern).allDefinitions(referredClasses)
     }
 
     val definitionsJson = JsObject(definitions.map(d ⇒ d.name → Json.toJson(d)))
@@ -198,7 +200,7 @@ final case class SwaggerSpecGenerator(
 
   import play.api.libs.functional.syntax._
 
-  private lazy val genParamWrites: OWrites[GenSwaggerParameter] = {
+  private[playSwagger] lazy val genParamWrites: OWrites[GenSwaggerParameter] = {
     val under = if (swaggerV3) __ \ "schema" else __
     val nullableName = if (swaggerV3) "nullable" else "x-nullable"
 
@@ -212,10 +214,11 @@ final case class SwaggerSpecGenerator(
       (under \ 'default).writeNullable[JsValue] ~
       (under \ 'example).writeNullable[JsValue] ~
       (under \ "items").writeNullable[SwaggerParameter](propWrites) ~
-      (under \ "enum").writeNullable[Seq[String]])(unlift(GenSwaggerParameter.unapply))
+      (under \ "enum").writeNullable[Seq[String]] ~
+      (under \ "additionalProperties").writeNullable[AdditionalProperties](additionalPropertiesWrites))(unlift(GenSwaggerParameter.unapply))
   }
 
-  private def customParamWrites(csp: CustomSwaggerParameter): List[JsObject] = {
+  private[playSwagger] def customParamWrites(csp: CustomSwaggerParameter): List[JsObject] = {
     csp.specAsParameter match {
       case head :: tail ⇒
         def withPrefix(input: JsObject): JsObject = {
@@ -237,7 +240,7 @@ final case class SwaggerSpecGenerator(
     }
   }
 
-  private lazy val customPropWrites: Writes[CustomSwaggerParameter] = Writes { cwp ⇒
+  private[playSwagger] lazy val customPropWrites: Writes[CustomSwaggerParameter] = Writes { cwp ⇒
     val nullableName = if (swaggerV3) "nullable" else "x-nullable"
 
     (__ \ 'default).writeNullable[JsValue].writes(cwp.default) ++
@@ -245,12 +248,18 @@ final case class SwaggerSpecGenerator(
       (cwp.specAsProperty orElse cwp.specAsParameter.headOption).getOrElse(Json.obj())
   }
 
-  private lazy val propWrites: Writes[SwaggerParameter] = Writes {
+  private[playSwagger] lazy val propWrites: Writes[SwaggerParameter] = Writes {
     case g: GenSwaggerParameter    ⇒ genPropWrites.writes(g)
     case c: CustomSwaggerParameter ⇒ customPropWrites.writes(c)
   }
 
-  private lazy val genPropWrites: Writes[GenSwaggerParameter] = {
+  private[playSwagger] lazy val additionalPropertiesWrites: Writes[AdditionalProperties] = OWrites {
+    case AdditionalProperties(Some(refType), _) => Json.obj("$ref" → JsString(referencePrefix + refType))
+    case AdditionalProperties(_, Some(tpe)) => Json.obj("type" → JsString(tpe))
+    case _ => JsObject.empty
+  }
+
+  private[playSwagger] lazy val genPropWrites: Writes[GenSwaggerParameter] = {
     val nullableName = if (swaggerV3) "nullable" else "x-nullable"
 
     (
@@ -261,7 +270,8 @@ final case class SwaggerSpecGenerator(
       (__ \ 'example).writeNullable[JsValue] ~
       (__ \ "$ref").writeNullable[String] ~
       (__ \ "items").lazyWriteNullable[SwaggerParameter](propWrites) ~
-      (__ \ "enum").writeNullable[Seq[String]])(p ⇒ (p.`type`, p.format, p.nullable, p.default, p.example, p.referenceType.map(referencePrefix + _), p.items, p.enum))
+      (__ \ "enum").writeNullable[Seq[String]] ~
+      (__ \ "additionalProperties").writeNullable[AdditionalProperties](additionalPropertiesWrites))(p ⇒ (p.`type`, p.format, p.nullable, p.default, p.example, p.referenceType.map(referencePrefix + _), p.items, p.enum, p.additionalProperties))
   }
 
   implicit class PathAdditions(path: JsPath) {
