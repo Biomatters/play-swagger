@@ -151,6 +151,11 @@ object SwaggerParameterMapper {
               AdditionalProperties(Some(refType), None)
             case GenSwaggerParameter(_, _, Some(valueType), _, _, _, _, _, _, _, _) =>
               AdditionalProperties(None, Some(valueType))
+            case CustomSwaggerParameter(_, _, Some(specAsProperty), _, _, _) =>
+              specAsProperty.value
+                .get("type").map(t => AdditionalProperties(None, Some(t.as[String])))
+                .orElse(specAsProperty.value.get("$ref").map(t => AdditionalProperties(Some(t.as[String]), None)))
+                .getOrElse(AdditionalProperties(None, Some("string")))
             case _ =>
               // TODO handle custom mappings
               AdditionalProperties(None, Some("string"))
